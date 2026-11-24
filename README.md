@@ -23,7 +23,7 @@ Generar ganancias vendiendo productos de Dropi con el mínimo trabajo manual pos
 
 | Rol | Responsable |
 |---|---|
-| Fundador, decisiones comerciales | Sebastián (Pillalú) |
+| Decisiones comerciales y aprobación de cambios | Fundador de Pillalú |
 | Desarrollo, integraciones, pruebas, documentación | Claude Code |
 | Arquitectura, estrategia y auditoría independiente | ChatGPT |
 
