@@ -1,0 +1,49 @@
+# --- Secretos y credenciales (NUNCA subir) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+credentials*.json
+token*.json
+*.token
+
+# --- Datos locales del negocio (pueden contener datos personales de clientes) ---
+data/
+*.db
+*.sqlite
+*.sqlite3
+exports/
+backups/
+*.csv
+!docs/**/*.csv
+!samples/**/*.csv
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Node (por si se usa alguna herramienta) ---
+node_modules/
+
+# --- Editores y sistema ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# --- Configuración local de Claude Code ---
+.claude/settings.local.json
