@@ -160,6 +160,7 @@ que **los porcentajes de comisión no se leyeron ahí**. Se obtendrán por API (
 - Calculadora oficial por API, de solo lectura:
   `GET https://api.mercadolibre.com/sites/$SITE/listing_prices?category_id=…&price=…&currency_id=…&logistic_type=…&shipping_modes=…&listing_type_id=…`
 - Devuelve `sale_fee_amount`, `sale_fee_details` (`percentage_fee`, `fixed_fee`, `financing_add_on_fee`) y costos por publicar.
+- `sale_fee_amount` **ya incluye** el `fixed_fee`. En el ejemplo oficial: precio 5.000, `percentage_fee` 36 % (1.800) + `fixed_fee` 200 = `sale_fee_amount` 2.000. No se debe restar el costo fijo dos veces.
 - Desde el **23/03 en Colombia**, el `fixed_fee` depende del **tipo de logística**; si no se envían `logistic_type` y `shipping_mode`, el valor calculado **no coincidirá** con lo cobrado.
 - Tipos de publicación para marketplace: `free`, `gold_special`, `gold_pro` (puede variar por sitio). Listado por sitio: `GET /sites/$SITE_ID/listing_types`.
 
@@ -167,8 +168,9 @@ que **los porcentajes de comisión no se leyeron ahí**. Se obtendrán por API (
 
 ### 2.6 Actualizar precio e inventario — [VERIFICADO]
 
-- `PUT https://api.mercadolibre.com/items/$ITEM_ID` con `available_quantity`, precio, imágenes, descripción, envío.
-- `available_quantity = 0` pausa la publicación (`paused` / `out_of_stock`); volver a > 0 la reactiva.
+- `PUT https://api.mercadolibre.com/items/$ITEM_ID` con `available_quantity`, precio, imágenes, envío.
+- La **descripción** no va en ese PUT: se edita con `PUT https://api.mercadolibre.com/items/$ITEM_ID/description?api_version=2` y cuerpo `plain_text` (página oficial `descripcion-de-articulos`).
+- `available_quantity = 0` pausa la publicación (`paused` / `out_of_stock`); volver a > 0 la reactiva. **Solo** funciona si el ítem es `condition = new` y no es `listing_type = free`; en otro caso hay que pausar cambiando el `status`.
 - Con ventas no se puede cambiar el título.
 - **[PARCIAL — ambigüedad a resolver]** La documentación dice: "A partir del 18 de marzo de 2026, las solicitudes que actualicen únicamente el campo price serán rechazadas con un 400", dentro de un aviso sobre la automatización de precios. Para precio debe usarse la **API de precios** (`api-de-precios`). Hay que leer esa página antes de implementar la sincronización de precios.
 - Con User Products y stock multi-origen, el stock se gestiona por `user-products/$ID/stock`.
@@ -176,6 +178,8 @@ que **los porcentajes de comisión no se leyeron ahí**. Se obtendrán por API (
 ### 2.7 Pedidos, notificaciones, devoluciones — [VERIFICADO]
 
 - `GET /orders/$ORDER_ID`, `GET /orders/search?seller=$SELLER_ID&order.status=paid`, `GET /orders/$ORDER_ID/shipments`.
+- **Packs:** toda compra está asociada a un `pack_id`, y un pack puede tener **varias órdenes** (relación 1 a N) con un solo envío. Un checkout con varios productos debe convertirse en **un** pedido en Dropi, no en varios (`GET /packs/$PACK_ID`).
+- **Contrato de envíos en migración:** la vista actual de `orders/$ORDER_ID/shipments` se depreca desde finales de septiembre de 2026. La "Hosted View" **siempre devuelve un arreglo** (la vista actual devuelve un objeto) y los datos del destinatario (`receiver_name`, `receiver_phone`) requieren la cabecera `X-Api-Version: 2`. Implementar directamente contra el contrato nuevo.
 - Notificaciones por **webhook (HTTP POST a una URL pública)** configurada en la aplicación, con tópicos como `orders_v2`, `items`, `shipments`, `questions`, `messages`, `items_prices`, `stock-location`, `post_purchase`.
 - Existen secciones oficiales de **reclamos**, **devoluciones** y **mensajería posventa**.
 - **Límite de peticiones**: error 429; el control es principalmente por Client ID y por endpoint; se recomienda backoff exponencial con jitter. No se publica un número general (Flex: 1000 rpm).

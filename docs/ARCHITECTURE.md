@@ -13,6 +13,7 @@ objetivo: **$0 COP/mes** en el MVP.
 | Interfaz | **Streamlit** (panel web local) | Formularios y dashboard sin escribir frontend |
 | Tareas programadas | Comando `pillalu sync` ejecutado a mano o con el programador de tareas del sistema | Sin colas ni workers |
 | Pedidos de Mercado Libre | **Sondeo** de `orders/search` cada X minutos | Evita exponer un servidor público para webhooks |
+| Callback OAuth de ML | **Por resolver.** La revisión de Codex señala que ML exige `redirect_uri` HTTPS; un `http://localhost` no serviría. Opciones sin costo a evaluar en la Fase 3 | Pendiente de verificar en la página oficial de creación de aplicaciones |
 | Secretos | Archivo `.env` local (no versionado) + llavero del sistema para tokens | Ver `SECURITY.md` |
 | Dependencias | `httpx`, `pydantic`, `sqlmodel`/`sqlite3`, `streamlit`, `python-dotenv`, `keyring`, `mcp` (SDK oficial) | Pocas y conocidas |
 
@@ -81,9 +82,10 @@ pillalu-manager/
 |---|---|
 | `suppliers` | id, dropi_id, nombre, ciudad, notas de calidad |
 | `products` | id, dropi_id, supplier_id, nombre, categoría, costo_proveedor, precio_sugerido, stock, imágenes (URLs), peso, dimensiones, actualizado_en |
-| `pricing_snapshots` | product_id, canal, precio_venta, comisión, costo_fijo, envío, margen_cop, margen_pct, fuente_de_comisión, fecha |
+| `pricing_snapshots` | product_id, canal, precio_venta, cargo_por_vender (total), de_ello_costo_fijo (informativo), envío, margen_cop, margen_pct, fuente_de_comisión, fecha |
 | `listings` | id, product_id, canal (`ml`/`fb`), id_externo, título, descripción, precio, estado, es_prueba |
-| `orders` | id, canal, id_externo, product_id, cantidad, precio, estado, dropi_order_id, costo_real, ganancia |
+| `packs` | id, canal, pack_id (ML agrupa 1..N órdenes de un mismo checkout), shipment_id, dropi_order_id |
+| `orders` | id, canal, id_externo, pack_id, product_id, cantidad, precio, estado, costo_real, ganancia |
 | `audit_log` | fecha, acción, objetivo, modo (`simulación`/`real`), resultado |
 
 Los datos personales del comprador **no** se guardan en `orders` más allá de lo necesario para crear el
@@ -94,8 +96,8 @@ pedido en Dropi (ver `SECURITY.md`).
 ```
 ganancia = precio_venta
          − costo_proveedor_dropi
-         − comisión_canal         (ML: sale_fee_amount de /sites/MCO/listing_prices)
-         − costo_fijo_canal       (ML: fixed_fee, depende de logística)
+         − cargo_por_vender       (ML: sale_fee_amount de /sites/MCO/listing_prices;
+                                   YA INCLUYE el fixed_fee: no restarlo dos veces)
          − costo_envío            (según escenario logístico; Dropi: cotización MCP)
          − otros (empaque, devoluciones esperadas, pauta)
 margen_pct = ganancia / precio_venta
