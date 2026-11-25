@@ -16,14 +16,23 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      PYTHONIOENCODING: utf-8
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Instalar dependencias fijadas
-        run: python -m pip install -r requirements-dev.txt
+      # Entorno virtual limpio, como iniciar.bat: el Python del runner trae paquetes propios (pipx…).
+      - name: Crear entorno limpio e instalar dependencias fijadas
+        run: |
+          python -m venv .ci-venv
+          if [ -f .ci-venv/Scripts/python.exe ]; then echo "PY=$PWD/.ci-venv/Scripts/python.exe" >> "$GITHUB_ENV"; else echo "PY=$PWD/.ci-venv/bin/python" >> "$GITHUB_ENV"; fi
+          if [ -f .ci-venv/Scripts/python.exe ]; then .ci-venv/Scripts/python.exe -m pip install -r requirements-dev.txt; else .ci-venv/bin/python -m pip install -r requirements-dev.txt; fi
       - name: Verificar que todas las dependencias instaladas estén fijadas
-        run: python tools/check_pins.py
-      - name: Pruebas (incluye regresiones financieras de la auditoría)
-        run: python -m pytest -q
+        run: '"$PY" tools/check_pins.py'
+      - name: Pruebas (incluye regresiones financieras de las auditorías)
+        run: '"$PY" -m pytest -q tests'
