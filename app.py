@@ -510,7 +510,10 @@ def page_drafts():
                 with st.form(f"draft_{d['id']}"):
                     title = st.text_input(f"Título ({len(d['title'])}/{cfg.title_max_len})", d["title"],
                                           max_chars=max(cfg.title_max_len, len(d["title"])))
-                    price = st.number_input("Precio (COP)", min_value=0, value=int(d["price_cop"] or 0), step=1000)
+                    stored = d["price_cop"]
+                    if stored is not None and stored < 0:  # dato heredado inválido (RA-P1-02)
+                        st.error(f"Precio guardado inválido ({fmt_cop(stored)}). Escribe un precio válido y guarda.")
+                    price = st.number_input("Precio (COP)", min_value=0, value=max(int(stored or 0), 0), step=1000)
                     desc = st.text_area("Descripción", d["description"], height=220)
                     status = st.selectbox("Estado", list(db.DRAFT_STATUSES),
                                           index=list(db.DRAFT_STATUSES).index(d["status"]),

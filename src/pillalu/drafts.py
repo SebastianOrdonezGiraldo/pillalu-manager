@@ -19,12 +19,17 @@ def check(draft: dict, product: Product | None, cfg: ChannelConfig) -> tuple[lis
     if product is None:
         return ["el producto ya no existe"], []
     price = draft.get("price_cop")
-    if not draft.get("title", "").strip():
+    if not (draft.get("title") or "").strip():
         blockers.append("sin título")
-    if not price or price <= 0:
+    if price is None or price == 0:
         blockers.append("sin precio")
+    elif price < 0:
+        blockers.append("precio inválido (negativo); corrígelo")
     if draft.get("excluded"):
         blockers.append("producto excluido del catálogo")
+    # Misma validación de producto que el catálogo, también para datos heredados (RA-P1-01).
+    for problem in product.invalid_values():
+        blockers.append(f"dato del producto inválido: {problem}")
     if product.stock == 0:
         blockers.append("sin stock en Dropi")
     elif product.stock is None:
@@ -32,6 +37,8 @@ def check(draft: dict, product: Product | None, cfg: ChannelConfig) -> tuple[lis
     miss = missing_inputs(cfg, product.supplier_cost_cop, product.shipping_cost_cop)
     if miss:
         blockers.append("no se puede calcular la ganancia: " + ", ".join(miss))
+    elif blockers:
+        pass  # con datos inválidos no se calcula ninguna ganancia
     elif price and price > 0:
         b = evaluate(price, product.supplier_cost_cop, cfg, product.shipping_cost_cop)
         if b.expected_profit < 0:

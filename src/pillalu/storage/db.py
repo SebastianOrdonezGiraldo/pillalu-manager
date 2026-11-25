@@ -298,6 +298,8 @@ def all_configs(conn: sqlite3.Connection) -> dict[str, ChannelConfig]:
 def upsert_draft(conn: sqlite3.Connection, product_id: int, channel: str, title: str, description: str,
                  price_cop: int | None, overwrite: bool = False) -> bool:
     """Crea la ficha. Si ya existe, solo la reemplaza con ``overwrite`` (no pisa ediciones)."""
+    if price_cop is not None and price_cop <= 0:
+        raise ValueError("El precio de la ficha debe ser mayor que 0.")
     now = _now()
     with _transaction(conn):
         existing = conn.execute(
@@ -325,6 +327,8 @@ def update_draft(conn: sqlite3.Connection, draft_id: int, **fields: Any) -> None
     fields = {k: v for k, v in fields.items() if k in allowed}
     if "status" in fields and fields["status"] not in DRAFT_STATUSES:
         raise ValueError(f"Estado inválido: {fields['status']}")
+    if fields.get("price_cop") is not None and fields["price_cop"] <= 0:
+        raise ValueError("El precio de la ficha debe ser mayor que 0.")
     if not fields:
         return
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -353,7 +357,7 @@ def custom_prices(conn: sqlite3.Connection) -> dict[tuple[int, str], int]:
     """Precio elegido en la ficha (si existe) por (producto, canal)."""
     return {(r["product_id"], r["channel"]): r["price_cop"] for r in conn.execute(
         "SELECT product_id, channel, price_cop FROM listing_drafts"
-        " WHERE price_cop IS NOT NULL AND status != 'descartada'")}
+        " WHERE price_cop > 0 AND status != 'descartada'")}
 
 
 def delete_draft(conn: sqlite3.Connection, draft_id: int) -> None:

@@ -20,9 +20,9 @@ if not exist ".venv\Scripts\python.exe" (
   )
 )
 
-".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
+".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
 if errorlevel 1 (
-  echo [ERROR] El entorno .venv usa una version de Python no soportada. Borra la carpeta .venv y vuelve a intentar.
+  echo [ERROR] El entorno .venv no usa Python 3.12, la unica version soportada. Borra la carpeta .venv y vuelve a intentar.
   pause
   exit /b 1
 )

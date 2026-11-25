@@ -210,6 +210,7 @@ def test_p1_04_python_requirement_is_consistent():
     bat = (ROOT / "iniciar.bat").read_text(encoding="utf-8")
     assert "3.10" not in readme and "3.12" in readme
     assert "-3.12" in bat and "errorlevel" in bat.lower()
+    assert "version_info[:2] == (3, 12)" in bat and ">= (3, 11)" not in bat  # RA-P3-01
 
 
 # --- P2 / P3 -----------------------------------------------------------------------

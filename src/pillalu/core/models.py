@@ -27,8 +27,12 @@ def valid_image_url(url) -> bool:
     (auditoría P2-03: Streamlit abriría una ruta local como imagen)."""
     if not isinstance(url, str) or len(url) > 2048:
         return False
-    parsed = urlparse(url.strip())
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc) and " " not in url.strip()
+    try:
+        parsed = urlparse(url.strip())
+        host = parsed.hostname  # valida también el host (p. ej. "[" sin cerrar)
+    except ValueError:  # URL mal formada: inválida, nunca una excepción (RA-P2-01)
+        return False
+    return parsed.scheme in ("http", "https") and bool(host) and " " not in url.strip()
 
 
 @dataclass
@@ -50,13 +54,15 @@ class Product:
     description: str | None = None
     has_variants: bool | None = None  # None = el archivo no lo indica
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
+    # Valores del origen que no se pudieron interpretar (no se guardan; bloquean el producto).
+    parse_errors: list[str] = field(default_factory=list, repr=False)
     id: int | None = None  # asignado por la base de datos
 
     def invalid_values(self) -> list[str]:
         """Errores que impiden guardar el producto. Regla única para TODAS las entradas
         (CSV, JSON, mapeo del MCP, formulario manual y base de datos) — auditoría P0-02.
         Un dato vacío (desconocido) no es error; un dato con valor inválido sí."""
-        out = []
+        out = list(self.parse_errors)
         if not (self.name or "").strip():
             out.append("sin nombre")
         if not (self.source_id or "").strip():
@@ -83,6 +89,7 @@ class Product:
         data = asdict(self)
         if not include_raw:
             data.pop("raw", None)
+            data.pop("parse_errors", None)
         return data
 
     @classmethod

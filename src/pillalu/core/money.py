@@ -11,43 +11,67 @@ import re
 from typing import Any
 
 
+# Solo dígitos ASCII (0-9): otros sistemas de numeración se rechazan.
+_PREFIX = re.compile(r"^(?:cop\s*)?\$?\s*", re.IGNORECASE)
+_SUFFIX = re.compile(r"\s*(?:cop)?$", re.IGNORECASE)
+_NUMBER = re.compile(r"-?[0-9]+(?:[.,][0-9]+)*")
+
+
+def _clean_text(value: Any) -> str:
+    text = str(value).replace("\u00a0", " ").strip()
+    # Una sola marca de moneda al inicio ("$", "COP", "COP $") y/o "COP" al final.
+    text = _PREFIX.sub("", text, count=1)
+    return _SUFFIX.sub("", text, count=1).strip()
+
+
 def parse_cop(value: Any) -> int | None:
-    """Convierte textos como ``$ 45.900``, ``45,900``, ``45.900,50`` o ``45900`` a entero.
+    """Convierte ``$ 45.900``, ``45,900``, ``45.900,50``, ``COP 12.000`` o ``45900`` a entero.
 
-    Devuelve ``None`` si el valor está vacío o no es interpretable (nunca 0 por defecto).
+    Devuelve ``None`` si el valor está vacío o **no cumple exactamente** un formato
+    aceptado (nunca 0 ni un valor recortado). El texto completo se valida ANTES de
+    convertir: ``1,20E+04``, ``12 mil``, ``45.9.00`` o ``1.2.3`` se rechazan en vez de
+    reinterpretarse (reauditoría RA-P0-01).
 
-    Reglas de separadores:
-    - Con ``.`` y ``,`` a la vez, el último que aparece es el decimal.
-    - Con un solo tipo de separador: si todos los grupos posteriores tienen 3 dígitos,
-      es separador de miles (``45.900`` / ``1,234,567``); si no, es decimal (``45.5``).
+    Formatos aceptados (signo ``-`` opcional, ``$``/``COP`` opcional al inicio o final):
+    - Sin separadores: ``45900``.
+    - Miles con ``.`` o ``,`` en grupos de 3: ``45.900``, ``1,234,567``.
+    - Miles y decimales: ``45.900,50`` o ``45,900.50`` (el último separador es el decimal).
+    - Un solo separador que no forma grupo de 3: decimal (``45,5``).
     """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        if isinstance(value, float) and math.isnan(value):
+        if isinstance(value, float) and not math.isfinite(value):
             return None
         return int(round(value))
-    text = re.sub(r"[^\d,.\-]", "", str(value))
-    if not text or not re.search(r"\d", text):
+    text = _clean_text(value)
+    if not text or not _NUMBER.fullmatch(text):
         return None
-    if "." in text and "," in text:
-        decimal = "." if text.rfind(".") > text.rfind(",") else ","
+    sign = -1 if text.startswith("-") else 1
+    body = text.lstrip("-")
+    if "." in body and "," in body:
+        decimal = "." if body.rfind(".") > body.rfind(",") else ","
         thousands = "," if decimal == "." else "."
-        text = text.replace(thousands, "").replace(decimal, ".")
+        integer, _, frac = body.rpartition(decimal)
+        if not re.fullmatch(rf"[0-9]{{1,3}}(?:{re.escape(thousands)}[0-9]{{3}})*", integer):
+            return None
+        number = float(integer.replace(thousands, "") + "." + frac)
     else:
-        sep = "." if "." in text else ("," if "," in text else None)
-        if sep:
-            groups = text.split(sep)
-            if len(groups) > 1 and all(len(g) == 3 for g in groups[1:]) and groups[0].lstrip("-"):
-                text = text.replace(sep, "")
+        sep = "." if "." in body else ("," if "," in body else None)
+        if sep is None:
+            number = float(body)
+        else:
+            groups = body.split(sep)
+            if len(groups[0]) <= 3 and all(len(g) == 3 for g in groups[1:]):
+                number = float(body.replace(sep, ""))
             elif len(groups) == 2:
-                text = text.replace(sep, ".")
+                number = float(body.replace(sep, "."))
             else:
                 return None
-    try:
-        return int(round(float(text)))
-    except ValueError:
-        return None
+    return sign * int(math.floor(number + 0.5))  # redondeo comercial: ,5 sube
+
+
+_PCT = re.compile(r"-?[0-9]+(?:[.,][0-9]+)?")
 
 
 def parse_pct(value: Any) -> float | None:
@@ -62,13 +86,12 @@ def parse_pct(value: Any) -> float | None:
             return None
         number = float(value)
     else:
-        text = str(value).strip().replace("%", "").replace(",", ".").strip()
+        text = str(value).replace("%", "").strip()
         if not text:
             return None
-        try:
-            number = float(text)
-        except ValueError:
+        if not _PCT.fullmatch(text):
             return None
+        number = float(text.replace(",", "."))
     return number / 100 if number > 1 else number
 
 
@@ -76,13 +99,12 @@ def parse_percent_field(value: Any) -> float | None:
     """Campo de formulario rotulado en %: ``12`` → 0.12, ``0,5`` → 0.005. Sin ambigüedad."""
     if value is None:
         return None
-    text = str(value).strip().replace("%", "").replace(",", ".").strip()
+    text = str(value).replace("%", "").strip()
     if not text:
         return None
-    try:
-        return float(text) / 100
-    except ValueError:
+    if not _PCT.fullmatch(text):  # sin exponentes ni texto extra (RA-P0-01)
         return None
+    return float(text.replace(",", ".")) / 100
 
 
 def fmt_cop(value: int | float | None) -> str:

@@ -134,12 +134,17 @@ def normalize(raw: Any, mapping: dict[str, Any]) -> list[Product]:
     products: list[Product] = []
     for item in items:
         values: dict[str, Any] = {}
+        errors: list[str] = []
         for field_name, path in mapping["fields"].items():
             if not path:
                 continue
             value = resolve(item, path)
             if field_name in INT_FIELDS:
-                value = parse_cop(value)
+                parsed = parse_cop(value)
+                if parsed is None and value not in (None, ""):
+                    # Nunca se descarta en silencio un importe mal escrito (RA-P0-01).
+                    errors.append(f"valor no numérico en '{field_name}': {value!r}")
+                value = parsed
             elif field_name == "images":
                 if isinstance(value, str):
                     value = [value]
@@ -154,6 +159,7 @@ def normalize(raw: Any, mapping: dict[str, Any]) -> list[Product]:
                 source="dropi_mcp",
                 source_id=values.pop("source_id") or "",
                 name=values.pop("name") or "",
+                parse_errors=errors,
                 **{k: v for k, v in values.items() if v is not None},
             )
         )
