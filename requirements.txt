@@ -1,0 +1,4 @@
+# Dependencias directas. Las versiones transitivas se fijan en constraints.txt.
+# Requiere Python 3.12 (Streamlit 1.67 exige 3.11 o superior).
+-c constraints.txt
+streamlit==1.67.0

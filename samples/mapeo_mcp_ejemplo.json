@@ -1,0 +1,15 @@
+{
+  "_aviso": "EJEMPLO con nombres de campos HIPOTÉTICOS. Los nombres reales del MCP de Dropi no están documentados: genera tu mapeo con la sugerencia de la app a partir de una respuesta real y revísalo.",
+  "items_path": "data.products",
+  "fields": {
+    "source_id": "id",
+    "name": "name",
+    "supplier_cost_cop": "sale_price",
+    "suggested_price_cop": "suggested_price",
+    "stock": "stock",
+    "category": "categories[0].name",
+    "supplier_name": "user.name",
+    "images": "gallery[].url",
+    "description": "description"
+  }
+}

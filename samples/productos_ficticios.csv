@@ -1,0 +1,8 @@
+dropi_id;nombre;costo_proveedor;precio_sugerido;stock;categoria;proveedor_id;proveedor;imagenes;peso_g;costo_envio;descripcion;tiene_variantes
+DEMO-001;Lámpara LED recargable para escritorio ¡ENVÍO GRATIS!;$ 28.500;$ 59.900;120;Hogar;P-01;Proveedor Demo Norte;https://example.com/demo/lampara-1.jpg|https://example.com/demo/lampara-2.jpg;450;14.000;Luz LED de 3 tonos. Batería recargable por USB. Brazo flexible.;no
+DEMO-002;Organizador de maquillaje giratorio 360;32.000;69.900;45;Belleza;P-02;Proveedor Demo Sur;https://example.com/demo/organizador-1.jpg;800;15.500;Gira 360 grados • 6 niveles ajustables • Material acrílico;no
+DEMO-003;Masajeador de cuello eléctrico;54.000;99.900;0;Salud;P-01;Proveedor Demo Norte;https://example.com/demo/masajeador-1.jpg;700;15.500;Masaje con calor. 3 velocidades.;no
+DEMO-004;Botella térmica acero inoxidable 1 litro;18.900;39.900;300;Deportes;P-03;Proveedor Demo Centro;https://example.com/demo/botella-1.jpg;400;12.500;Mantiene frío 24 h y caliente 12 h. Libre de BPA.;si
+DEMO-005;Set de cuchillos de cocina x6 con base;41.000;;80;Cocina;P-03;Proveedor Demo Centro;;1200;16.000;Seis cuchillos de acero con base de madera.;no
+DEMO-006;Audífonos inalámbricos TWS stock disponible;;49.900;60;Tecnología;P-02;Proveedor Demo Sur;https://example.com/demo/audifonos-1.jpg;150;12.000;Bluetooth 5.3. Estuche de carga.;no
+DEMO-007;Faja reductora;abc;79.900;20;Moda;P-02;Proveedor Demo Sur;;300;12.000;;si
