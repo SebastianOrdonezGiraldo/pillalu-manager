@@ -152,7 +152,7 @@ def upsert_products(conn: sqlite3.Connection, products: Iterable[Product], filen
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (p.source, p.source_id, p.name, p.description, p.category, p.supplier_id, p.supplier_name,
                      p.supplier_cost_cop, p.suggested_price_cop, p.stock, json.dumps(p.images), p.weight_g,
-                     p.shipping_cost_cop, int(p.has_variants), json.dumps(p.raw, ensure_ascii=False, default=str),
+                     p.shipping_cost_cop, int(bool(p.has_variants)), json.dumps(p.raw, ensure_ascii=False, default=str),
                      now, now),
                 )
                 conn.execute(
@@ -165,10 +165,8 @@ def upsert_products(conn: sqlite3.Connection, products: Iterable[Product], filen
             changes: dict[str, Any] = {}
             for f in UPDATABLE:
                 new = getattr(p, f)
-                if f == "has_variants":
-                    new = int(new)
-                    if not new:
-                        continue
+                if f == "has_variants" and new is not None:
+                    new = int(new)  # un "no" explícito sí limpia el dato anterior
                 if new is None or new == "":
                     continue
                 if existing[f] != new:
@@ -275,7 +273,8 @@ def upsert_draft(conn: sqlite3.Connection, product_id: int, channel: str, title:
             return False
         if existing:
             conn.execute(
-                "UPDATE listing_drafts SET title = ?, description = ?, price_cop = ?, updated_at = ? WHERE id = ?",
+                "UPDATE listing_drafts SET title = ?, description = ?, price_cop = ?, status = 'borrador',"
+                " external_url = NULL, updated_at = ? WHERE id = ?",
                 (title, description, price_cop, now, existing["id"]),
             )
         else:
@@ -319,7 +318,8 @@ def list_drafts(conn: sqlite3.Connection, channel: str | None = None) -> list[di
 def custom_prices(conn: sqlite3.Connection) -> dict[tuple[int, str], int]:
     """Precio elegido en la ficha (si existe) por (producto, canal)."""
     return {(r["product_id"], r["channel"]): r["price_cop"] for r in conn.execute(
-        "SELECT product_id, channel, price_cop FROM listing_drafts WHERE price_cop IS NOT NULL")}
+        "SELECT product_id, channel, price_cop FROM listing_drafts"
+        " WHERE price_cop IS NOT NULL AND status != 'descartada'")}
 
 
 def delete_draft(conn: sqlite3.Connection, draft_id: int) -> None:

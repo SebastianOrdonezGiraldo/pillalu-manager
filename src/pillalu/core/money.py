@@ -72,6 +72,19 @@ def parse_pct(value: Any) -> float | None:
     return number / 100 if number > 1 else number
 
 
+def parse_percent_field(value: Any) -> float | None:
+    """Campo de formulario rotulado en %: ``12`` → 0.12, ``0,5`` → 0.005. Sin ambigüedad."""
+    if value is None:
+        return None
+    text = str(value).strip().replace("%", "").replace(",", ".").strip()
+    if not text:
+        return None
+    try:
+        return float(text) / 100
+    except ValueError:
+        return None
+
+
 def fmt_cop(value: int | float | None) -> str:
     if value is None:
         return "—"

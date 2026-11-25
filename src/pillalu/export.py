@@ -22,16 +22,23 @@ ML_COLUMNS = ["dropi_id", "titulo", "precio_cop", "stock_proveedor", "categoria_
               "descripcion", "imagen_1", "imagen_2", "imagen_3", "imagen_4", "imagen_5", "imagen_6"]
 
 
+def _safe(value):
+    """Evita que Excel interprete como fórmula un texto que empieza por = + - @ (inyección CSV)."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def drafts_to_ml_csv(drafts: list[dict]) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")  # Excel en español usa ';'
     writer.writerow(ML_COLUMNS)
     for d in drafts:
         imgs = (d.get("images") or [])[:6]
-        writer.writerow([
+        writer.writerow([_safe(v) for v in (
             d.get("source_id", ""), d["title"], d.get("price_cop") or "", d.get("stock") if d.get("stock") is not None else "",
             d.get("category") or "", "Nuevo", d["description"], *imgs, *[""] * (6 - len(imgs)),
-        ])
+        )])
     return buf.getvalue().encode("utf-8-sig")  # BOM para que Excel lea las tildes
 
 

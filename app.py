@@ -20,7 +20,7 @@ from pillalu.adapters.dropi.mapping import MappingError, suggest_mapping  # noqa
 from pillalu.catalog import analyze_product, build_rows, to_records  # noqa: E402
 from pillalu.core.listings import build_listing  # noqa: E402
 from pillalu.core.models import CHANNEL_LABELS, CHANNELS, Product  # noqa: E402
-from pillalu.core.money import fmt_cop, fmt_pct, parse_cop, parse_pct  # noqa: E402
+from pillalu.core.money import fmt_cop, fmt_pct, parse_cop, parse_percent_field  # noqa: E402
 from pillalu.core.pricing import ChannelConfig, break_even_units, evaluate, format_tiers, parse_tiers  # noqa: E402
 from pillalu.export import ad_text, drafts_to_fb_zip, drafts_to_ml_csv  # noqa: E402
 from pillalu.storage import db  # noqa: E402
@@ -379,11 +379,15 @@ def page_catalog():
     if a3.button("📝 Preparar fichas", type="primary", disabled=not ids):
         by_id = {r.product.id: r for r in rows}
         created = skipped = 0
+        no_price: list[str] = []
         for pid in ids:
             row = by_id[pid]
             for ch in chans:
                 cfg = configs[ch]
                 price = row.results[ch].recommended_price
+                if price is None:  # canal incompleto o sin precio que cumpla la meta: no se crea ficha
+                    no_price.append(f"{row.product.name} ({CHANNEL_LABELS[ch]})")
+                    continue
                 listing = build_listing(row.product, ch, price, cfg.title_max_len, db.get_footer(conn, ch))
                 if db.upsert_draft(conn, pid, ch, listing["title"], listing["description"], listing["price"],
                                    overwrite):
@@ -391,6 +395,8 @@ def page_catalog():
                 else:
                     skipped += 1
         st.success(f"{created} fichas preparadas, {skipped} ya existían. Revísalas en 📝 Fichas para publicar.")
+        if no_price:
+            st.warning("Sin ficha por falta de costos o de un precio rentable: " + "; ".join(no_price[:20]))
     if a4.button("🚫 Excluir / restaurar", disabled=not ids):
         currently = db.excluded_ids(conn)
         db.set_excluded(conn, ids, not all(i in currently for i in ids))
@@ -561,7 +567,7 @@ def page_settings():
                     def pct(label, value):
                         if not value.strip():
                             return None
-                        v = parse_pct(value)
+                        v = parse_percent_field(value)
                         if v is None or v < 0 or v >= 1:
                             errors.append(f"{label}: valor inválido")
                         return v

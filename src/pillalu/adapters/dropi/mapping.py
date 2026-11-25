@@ -139,7 +139,7 @@ def normalize(raw: Any, mapping: dict[str, Any]) -> list[Product]:
                     value = [value]
                 value = [str(v) for v in (value or []) if v]
             elif field_name == "has_variants":
-                value = bool(value)
+                value = None if value is None else bool(value)
             elif value is not None:
                 value = str(value)
             values[field_name] = value

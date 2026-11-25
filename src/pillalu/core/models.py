@@ -26,7 +26,7 @@ class Product:
     weight_g: int | None = None
     shipping_cost_cop: int | None = None  # cotización de flete Dropi para este producto, si existe
     description: str | None = None
-    has_variants: bool = False
+    has_variants: bool | None = None  # None = el archivo no lo indica
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
     id: int | None = None  # asignado por la base de datos
 

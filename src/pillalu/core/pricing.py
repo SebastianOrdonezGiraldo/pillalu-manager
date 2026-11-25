@@ -296,6 +296,10 @@ def analyze(
             if _meets(evaluate(rec, supplier_cost, cfg, product_shipping), cfg.min_profit_cop, cfg.target_margin):
                 break
             rec += 1000
+        else:
+            # Ningún precio redondeado cercano cumple: se usa el precio exacto, que sí cumple.
+            rec = exact
+            result.warnings.append("El precio recomendado no se pudo redondear a …900 sin perder margen.")
         result.recommended_price = rec
         result.at_recommended = evaluate(rec, supplier_cost, cfg, product_shipping)
 

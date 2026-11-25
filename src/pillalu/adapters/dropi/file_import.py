@@ -103,11 +103,19 @@ def row_to_product(row: dict[str, Any], source: str, line: int, report: ImportRe
             if v not in (None, "") and parsed is None:
                 report.rejected.append((line, f"valor no numérico en '{ALIASES[f][0]}': {v!r}"))
                 return None
+            if parsed is not None and parsed < 0:
+                report.rejected.append((line, f"valor negativo en '{ALIASES[f][0]}': {v!r}"))
+                return None
             values[f] = parsed
         elif f == "images":
             values[f] = _images(v)
         elif f == "has_variants":
-            values[f] = str(v).strip().lower() in TRUE_VALUES if not isinstance(v, bool) else v
+            if isinstance(v, bool):
+                values[f] = v
+            elif v in (None, ""):
+                values[f] = None  # no indicado: no se asume ni sí ni no
+            else:
+                values[f] = str(v).strip().lower() in TRUE_VALUES
         else:
             values[f] = str(v).strip() if v not in (None, "") else None
 
