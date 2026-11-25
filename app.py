@@ -17,11 +17,15 @@ import streamlit as st  # noqa: E402
 from pillalu import __version__  # noqa: E402
 from pillalu.adapters.dropi import file_import  # noqa: E402
 from pillalu.adapters.dropi.mapping import MappingError, suggest_mapping  # noqa: E402
-from pillalu.catalog import analyze_product, build_rows, to_records  # noqa: E402
+from pillalu.catalog import build_rows, to_records  # noqa: E402
 from pillalu.core.listings import build_listing  # noqa: E402
 from pillalu.core.models import CHANNEL_LABELS, CHANNELS, Product  # noqa: E402
 from pillalu.core.money import fmt_cop, fmt_pct, parse_cop, parse_percent_field  # noqa: E402
-from pillalu.core.pricing import ChannelConfig, break_even_units, evaluate, format_tiers, parse_tiers  # noqa: E402
+from pillalu.core.pricing import (  # noqa: E402
+    ChannelConfig, break_even_units, evaluate, expected_deliveries, format_tiers, parse_tiers,
+)
+from pillalu.core.models import valid_image_url  # noqa: E402
+from pillalu import drafts as draft_rules  # noqa: E402
 from pillalu.export import ad_text, drafts_to_fb_zip, drafts_to_ml_csv  # noqa: E402
 from pillalu.storage import db  # noqa: E402
 
@@ -44,12 +48,9 @@ st.markdown(
 )
 
 
-@st.cache_resource
-def get_conn():
-    return db.connect()
-
-
-conn = get_conn()
+# Una conexión propia por ejecución del script (cada sesión/hilo de Streamlit tiene la
+# suya). Antes se compartía una conexión en caché entre sesiones (auditoría P1-03).
+conn = db.connect()
 
 PAGES = ["📊 Resumen", "📥 Importar productos", "🛒 Catálogo", "📝 Fichas para publicar", "⚙️ Costos por canal"]
 with st.sidebar:
@@ -62,6 +63,17 @@ with st.sidebar:
         "automáticamente.</div>",
         unsafe_allow_html=True,
     )
+
+
+def show_image(urls) -> None:
+    """Muestra la primera imagen válida (solo http/https). Un fallo no rompe la página (P2-03)."""
+    url = next((u for u in urls or [] if valid_image_url(u)), None)
+    if not url:
+        return
+    try:
+        st.image(url, use_container_width=True)
+    except Exception:  # noqa: BLE001
+        st.caption("No se pudo mostrar la imagen.")
 
 
 def load_rows():
@@ -109,13 +121,13 @@ def page_summary():
 
     st.subheader("Ganancias")
     g1, g2 = st.columns(2)
-    ready = [d for d in drafts if d["status"] in ("lista", "publicada_manual")]
+    ready = [d for d in drafts if d["status"] in draft_rules.READY_STATUSES]
     potential = 0.0
     for d in ready:
-        p = db.get_product(conn, d["product_id"])
-        res = analyze_product(p, configs, {(p.id, d["channel"]): d["price_cop"]})[d["channel"]] if p else None
-        if res and res.selling:
-            potential += res.selling.expected_profit
+        # Ganancia al precio de la ficha, solo si la ficha es válida (auditoría P1-02).
+        profit = draft_rules.expected_profit(d, db.get_product(conn, d["product_id"]), configs[d["channel"]])
+        if profit is not None:
+            potential += profit
     g1.metric("Ganancia POTENCIAL (1 venta por ficha lista/publicada)", fmt_cop(potential),
               help="Estimación, no es dinero real. Suma la ganancia esperada de vender una unidad de cada ficha.")
     g2.metric("Ganancia REALIZADA", fmt_cop(0),
@@ -164,13 +176,9 @@ def page_import():
         mapping = None
         try:
             if mapping_file:
-                from pillalu.adapters.dropi.mapping import load_mapping
-                import tempfile, os
+                from pillalu.adapters.dropi.mapping import parse_mapping
 
-                with tempfile.NamedTemporaryFile("wb", suffix=".json", delete=False) as tmp:
-                    tmp.write(mapping_file.getvalue())
-                mapping = load_mapping(tmp.name)
-                os.unlink(tmp.name)
+                mapping = parse_mapping(json.loads(mapping_file.getvalue().decode("utf-8-sig")))
             report = file_import.read_file(uploaded.name, uploaded.getvalue(), mapping)
         except (ValueError, MappingError, json.JSONDecodeError) as exc:
             st.error(f"No se pudo leer el archivo: {exc}")
@@ -186,7 +194,7 @@ def page_import():
 
         st.success(f"{len(report.products)} productos válidos · {len(report.rejected)} filas rechazadas")
         if report.unknown_columns:
-            st.caption("Columnas ignoradas: " + ", ".join(report.unknown_columns))
+            st.caption("Columnas ignoradas (no se guardan): " + ", ".join(report.unknown_columns))
         for w in report.warnings[:20]:
             st.warning(w)
         if report.rejected:
@@ -195,10 +203,14 @@ def page_import():
             preview = pd.DataFrame([p.to_dict() for p in report.products])
             st.dataframe(preview.drop(columns=["id"], errors="ignore"), hide_index=True, use_container_width=True)
             if st.button("💾 Guardar en el catálogo", type="primary"):
-                counts = db.upsert_products(conn, report.products, uploaded.name, len(report.rejected),
-                                            {"rechazadas": report.rejected[:200]})
-                st.success(f"Listo: {counts['inserted']} nuevos, {counts['updated']} actualizados, "
-                           f"{counts['unchanged']} sin cambios.")
+                try:
+                    counts = db.upsert_products(conn, report.products, uploaded.name, len(report.rejected),
+                                                {"rechazadas": report.rejected[:200]})
+                except Exception as exc:  # noqa: BLE001 — el lote completo se revierte
+                    st.error(f"No se guardó nada (el lote se revirtió completo): {exc}")
+                else:
+                    st.success(f"Listo: {counts['inserted']} nuevos, {counts['updated']} actualizados, "
+                               f"{counts['unchanged']} sin cambios.")
 
     st.divider()
     st.subheader("Agregar un producto a mano")
@@ -215,15 +227,25 @@ def page_import():
         imgs = c3.text_input("URLs de imágenes (separadas por |)")
         desc = st.text_area("Descripción")
         if st.form_submit_button("Agregar"):
-            c = parse_cop(cost)
-            if not sid or not name or not c or c <= 0:
-                st.error("ID, nombre y un costo de proveedor mayor que cero son obligatorios.")
+            errors = []
+            parsed = {}
+            for label, raw, key in (("Costo proveedor", cost, "supplier_cost_cop"), ("Precio sugerido", sugg,
+                                    "suggested_price_cop"), ("Stock", stock, "stock"), ("Flete Dropi", ship,
+                                    "shipping_cost_cop")):
+                v = parse_cop(raw)
+                if raw.strip() and v is None:
+                    errors.append(f"{label}: no es un número")
+                parsed[key] = v
+            if parsed["supplier_cost_cop"] is None:
+                errors.append("El costo de proveedor es obligatorio.")
+            p = Product(source="manual", source_id=sid.strip(), name=name.strip(), category=category or None,
+                        supplier_name=supplier or None, description=desc or None,
+                        images=[u.strip() for u in imgs.split("|") if u.strip()], **parsed)
+            errors += p.invalid_values()  # misma regla que la importación (auditoría P0-02)
+            if errors:
+                for e in errors:
+                    st.error(e)
             else:
-                p = Product(source="manual", source_id=sid.strip(), name=name.strip(), supplier_cost_cop=c,
-                            suggested_price_cop=parse_cop(sugg), stock=parse_cop(stock), category=category or None,
-                            supplier_name=supplier or None, shipping_cost_cop=parse_cop(ship),
-                            images=[u.strip() for u in imgs.split("|") if u.strip().startswith("http")],
-                            description=desc or None)
                 counts = db.upsert_products(conn, [p], "manual")
                 st.success("Producto guardado." if counts["inserted"] else "Producto actualizado.")
 
@@ -416,16 +438,20 @@ def page_catalog():
                     st.warning(f"{CHANNEL_LABELS[ch]}: faltan datos → {', '.join(r.missing)}")
                 for w in r.warnings:
                     st.info(f"{CHANNEL_LABELS[ch]}: {w}")
-            inv = st.number_input("Inversión fija a recuperar (muestras, fotos…) en COP", value=0, step=10000)
+            inv = st.number_input("Inversión fija a recuperar (muestras, fotos…) en COP", min_value=0, value=0,
+                                  step=10000)
             if inv:
                 for ch, r in row.results.items():
                     b = r.selling
                     units = break_even_units(inv, b.expected_profit) if b else None
-                    st.write(f"**{CHANNEL_LABELS[ch]}**: punto de equilibrio = "
-                             f"{units if units else '—'} pedidos entregados")
+                    if units:
+                        rate = configs[ch].return_rate or 0.0
+                        st.write(f"**{CHANNEL_LABELS[ch]}**: ≈ {units} pedidos iniciados estimados "
+                                 f"(≈ {expected_deliveries(units, rate):.0f} entregas con {fmt_pct(rate)} de devoluciones)")
+                    else:
+                        st.write(f"**{CHANNEL_LABELS[ch]}**: — (sin ganancia esperada positiva o faltan datos)")
         with d2:
-            if p.images:
-                st.image(p.images[0], use_container_width=True)
+            show_image(p.images)
             st.caption(f"Stock: {p.stock if p.stock is not None else '—'} · Proveedor: {p.supplier_name or '—'}")
             hist = db.price_history(conn, pid)
             if len(hist) > 1:
@@ -449,27 +475,42 @@ def page_drafts():
         st.info("No hay fichas con ese filtro. Selecciona productos en 🛒 Catálogo y pulsa «Preparar fichas».")
         return
 
+    cfg = configs[ch]
+    products = {d["product_id"]: db.get_product(conn, d["product_id"]) for d in drafts}
+    checks = {d["id"]: draft_rules.check(d, products[d["product_id"]], cfg) for d in drafts}
+    # Solo se exportan fichas sin bloqueos (precio, stock, exclusión, pérdida) — auditoría P1-02.
+    exportable = [d for d in drafts if not checks[d["id"]][0]]
+    blocked = len(drafts) - len(exportable)
     e1, e2 = st.columns(2)
     if ch == "mercadolibre":
-        e1.download_button("⬇️ Exportar CSV de trabajo (Mercado Libre)", drafts_to_ml_csv(drafts),
-                           "fichas_mercadolibre.csv", "text/csv")
+        e1.download_button(f"⬇️ Exportar CSV de trabajo (Mercado Libre) · {len(exportable)} fichas",
+                           drafts_to_ml_csv(exportable), "fichas_mercadolibre.csv", "text/csv",
+                           disabled=not exportable)
         e2.caption("No es la plantilla oficial de carga masiva de ML (se descarga desde tu cuenta y depende de "
-                   "la categoría). Úsalo para copiar los datos.")
+                   "la categoría). La columna «estado» distingue borradores de fichas listas.")
     else:
-        e1.download_button("⬇️ Descargar paquetes Facebook (.zip)", drafts_to_fb_zip(drafts),
-                           "fichas_facebook.zip", "application/zip")
+        e1.download_button(f"⬇️ Descargar paquetes Facebook (.zip) · {len(exportable)} fichas",
+                           drafts_to_fb_zip(exportable), "fichas_facebook.zip", "application/zip",
+                           disabled=not exportable)
+    if blocked:
+        st.warning(f"{blocked} ficha(s) no se exportan porque tienen bloqueos (ver ⛔ en cada una).")
 
-    cfg = configs[ch]
     for d in drafts:
-        p = db.get_product(conn, d["product_id"])
-        label = f"{db.STATUS_LABELS[d['status']]} · {d['title']} · {fmt_cop(d['price_cop'])}"
+        p = products[d["product_id"]]
+        blockers, warns = checks[d["id"]]
+        flag = "⛔ " if blockers else ""
+        label = f"{flag}{db.STATUS_LABELS[d['status']]} · {d['title']} · {fmt_cop(d['price_cop'])}"
         with st.expander(label):
+            for b in blockers:
+                st.error(f"⛔ {b}")
+            for w in warns:
+                st.warning(w)
             c1, c2 = st.columns([3, 1])
             with c1:
                 with st.form(f"draft_{d['id']}"):
                     title = st.text_input(f"Título ({len(d['title'])}/{cfg.title_max_len})", d["title"],
                                           max_chars=max(cfg.title_max_len, len(d["title"])))
-                    price = st.number_input("Precio (COP)", value=int(d["price_cop"] or 0), step=1000)
+                    price = st.number_input("Precio (COP)", min_value=0, value=int(d["price_cop"] or 0), step=1000)
                     desc = st.text_area("Descripción", d["description"], height=220)
                     status = st.selectbox("Estado", list(db.DRAFT_STATUSES),
                                           index=list(db.DRAFT_STATUSES).index(d["status"]),
@@ -477,9 +518,14 @@ def page_drafts():
                     url = st.text_input("Enlace de la publicación (cuando la publiques)", d.get("external_url") or "")
                     s1, s2 = st.columns(2)
                     if s1.form_submit_button("💾 Guardar", type="primary"):
-                        db.update_draft(conn, d["id"], title=title.strip(), price_cop=int(price) or None,
-                                        description=desc, status=status, external_url=url.strip() or None)
-                        st.rerun()
+                        new = dict(d, title=title.strip(), price_cop=int(price) if price > 0 else None)
+                        new_blockers, _ = draft_rules.check(new, p, cfg)
+                        if status in draft_rules.READY_STATUSES and new_blockers:
+                            st.error("No se puede marcar como lista/publicada: " + "; ".join(new_blockers))
+                        else:
+                            db.update_draft(conn, d["id"], title=new["title"], price_cop=new["price_cop"],
+                                            description=desc, status=status, external_url=url.strip() or None)
+                            st.rerun()
                     if s2.form_submit_button("🗑️ Eliminar ficha"):
                         db.delete_draft(conn, d["id"])
                         st.rerun()
@@ -493,7 +539,7 @@ def page_drafts():
                     else:
                         st.caption("Faltan costos del canal para calcular la ganancia.")
                 if d["images"]:
-                    st.image(d["images"][0], use_container_width=True)
+                    show_image(d["images"])
                     st.caption(f"{len(d['images'])} fotos de Dropi")
             st.caption("Texto para copiar:")
             st.code(ad_text(d), language=None)
@@ -528,7 +574,8 @@ def page_settings():
     st.title("Costos por canal")
     st.markdown(
         "Deja un campo **vacío** si no conoces el dato: el sistema no lo tomará como cero y te avisará. "
-        "Escribe **0** solo si estás seguro de que ese costo no existe."
+        "Escribe **0** solo si estás seguro de que ese costo no existe. Las tablas por tramos deben terminar con "
+        "una línea `resto: valor` para que todos los precios tengan tarifa. No se aceptan valores negativos."
     )
     tabs = st.tabs([CHANNEL_LABELS[c] for c in CHANNELS])
     for tab, ch in zip(tabs, CHANNELS):

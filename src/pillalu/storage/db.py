@@ -104,11 +104,18 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     path = Path(path or os.environ.get("PILLALU_DB") or DEFAULT_DB)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), check_same_thread=False)
+    # Una conexión por unidad de trabajo / hilo (auditoría P1-03): no se comparte entre
+    # sesiones de Streamlit; SQLite serializa a los escritores con su propio bloqueo.
+    conn = sqlite3.connect(str(path), timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1')")
+    version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
+    if version == "1":
+        # v2: no se conservan filas crudas importadas (auditoría P2-04); se borran las históricas.
+        conn.execute("UPDATE products SET raw_json = NULL WHERE raw_json IS NOT NULL")
+        conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
     conn.commit()
     return conn
 
@@ -139,9 +146,16 @@ def upsert_products(conn: sqlite3.Connection, products: Iterable[Product], filen
 
     Un campo vacío en el archivo **no borra** un dato ya conocido.
     """
+    products = list(products)
+    # Validación en la capa de persistencia: ningún origen puede guardar valores inválidos.
+    invalid = [(p.source_id or p.name, e) for p in products for e in p.invalid_values()]
+    if invalid:
+        raise ValueError("Productos inválidos, no se guardó nada: "
+                         + "; ".join(f"{who}: {e}" for who, e in invalid[:10]))
     counts = {"inserted": 0, "updated": 0, "unchanged": 0}
     now = _now()
-    with conn:
+    # Lote atómico: productos, historial y registro del lote se confirman juntos o nada.
+    with _transaction(conn):
         for p in products:
             existing = conn.execute("SELECT * FROM products WHERE source_id = ?", (p.source_id,)).fetchone()
             if existing is None:
@@ -152,7 +166,7 @@ def upsert_products(conn: sqlite3.Connection, products: Iterable[Product], filen
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (p.source, p.source_id, p.name, p.description, p.category, p.supplier_id, p.supplier_name,
                      p.supplier_cost_cop, p.suggested_price_cop, p.stock, json.dumps(p.images), p.weight_g,
-                     p.shipping_cost_cop, int(bool(p.has_variants)), json.dumps(p.raw, ensure_ascii=False, default=str),
+                     p.shipping_cost_cop, int(bool(p.has_variants)), None,
                      now, now),
                 )
                 conn.execute(
@@ -199,6 +213,26 @@ def upsert_products(conn: sqlite3.Connection, products: Iterable[Product], filen
     return counts
 
 
+class _transaction:
+    """``BEGIN IMMEDIATE`` … ``COMMIT``/``ROLLBACK`` explícitos sobre una conexión."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def __enter__(self):
+        if self.conn.in_transaction:
+            self.conn.commit()
+        self.conn.execute("BEGIN IMMEDIATE")
+        return self.conn
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.conn.commit()
+        else:
+            self.conn.rollback()
+        return False
+
+
 def list_products(conn: sqlite3.Connection, include_excluded: bool = True) -> list[Product]:
     sql = "SELECT * FROM products" + ("" if include_excluded else " WHERE excluded = 0") + " ORDER BY id"
     return [_row_to_product(r) for r in conn.execute(sql)]
@@ -214,7 +248,7 @@ def excluded_ids(conn: sqlite3.Connection) -> set[int]:
 
 
 def set_excluded(conn: sqlite3.Connection, product_ids: Iterable[int], excluded: bool) -> None:
-    with conn:
+    with _transaction(conn):
         conn.executemany("UPDATE products SET excluded = ? WHERE id = ?", [(int(excluded), i) for i in product_ids])
 
 
@@ -246,7 +280,7 @@ def get_footer(conn: sqlite3.Connection, channel: str) -> str:
 
 
 def save_channel_config(conn: sqlite3.Connection, cfg: ChannelConfig, footer: str = "") -> None:
-    with conn:
+    with _transaction(conn):
         conn.execute(
             "INSERT INTO channel_settings (channel, config_json, footer, updated_at) VALUES (?,?,?,?)"
             " ON CONFLICT(channel) DO UPDATE SET config_json = excluded.config_json, footer = excluded.footer,"
@@ -265,7 +299,7 @@ def upsert_draft(conn: sqlite3.Connection, product_id: int, channel: str, title:
                  price_cop: int | None, overwrite: bool = False) -> bool:
     """Crea la ficha. Si ya existe, solo la reemplaza con ``overwrite`` (no pisa ediciones)."""
     now = _now()
-    with conn:
+    with _transaction(conn):
         existing = conn.execute(
             "SELECT id FROM listing_drafts WHERE product_id = ? AND channel = ?", (product_id, channel)
         ).fetchone()
@@ -294,13 +328,13 @@ def update_draft(conn: sqlite3.Connection, draft_id: int, **fields: Any) -> None
     if not fields:
         return
     sets = ", ".join(f"{k} = ?" for k in fields)
-    with conn:
+    with _transaction(conn):
         conn.execute(f"UPDATE listing_drafts SET {sets}, updated_at = ? WHERE id = ?",
                      (*fields.values(), _now(), draft_id))
 
 
 def list_drafts(conn: sqlite3.Connection, channel: str | None = None) -> list[dict]:
-    sql = ("SELECT d.*, p.name AS product_name, p.images_json, p.source_id, p.stock, p.supplier_cost_cop,"
+    sql = ("SELECT d.*, p.name AS product_name, p.images_json, p.source_id, p.stock, p.supplier_cost_cop, p.excluded,"
            " p.category FROM listing_drafts d JOIN products p ON p.id = d.product_id")
     args: tuple = ()
     if channel:
@@ -323,5 +357,5 @@ def custom_prices(conn: sqlite3.Connection) -> dict[tuple[int, str], int]:
 
 
 def delete_draft(conn: sqlite3.Connection, draft_id: int) -> None:
-    with conn:
+    with _transaction(conn):
         conn.execute("DELETE FROM listing_drafts WHERE id = ?", (draft_id,))

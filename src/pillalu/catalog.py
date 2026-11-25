@@ -26,6 +26,11 @@ class CatalogRow:
 def analyze_product(p: Product, configs: dict[str, ChannelConfig],
                     custom: dict[tuple[int, str], int] | None = None) -> dict[str, ProfitResult]:
     custom = custom or {}
+    invalid = p.invalid_values()
+    if invalid:
+        # Datos guardados inválidos (p. ej. de versiones anteriores): se bloquea el cálculo
+        # hasta corregirlos, nunca se usan (auditoría P0-02).
+        return {ch: ProfitResult(channel=ch, missing=[f"dato inválido: {e}" for e in invalid]) for ch in CHANNELS}
     return {
         ch: analyze(
             p.supplier_cost_cop,

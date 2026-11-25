@@ -18,15 +18,17 @@ preparar sus publicaciones para **Mercado Libre** y **Facebook Marketplace** y g
 
 ## Cómo ejecutarla en Windows
 
-Requisito: Python 3.10 o superior ([python.org](https://www.python.org/downloads/), marca *Add python.exe to PATH*).
+Requisito: **Python 3.12** ([python.org](https://www.python.org/downloads/), marca *Add python.exe to PATH*).
+Streamlit 1.67 exige Python 3.11 o superior; la versión probada en Windows y en CI es la 3.12.
 
-**Opción fácil:** doble clic en `iniciar.bat`. La primera vez crea el entorno e instala dependencias (unos minutos);
-después abre la app en el navegador (`http://localhost:8501`).
+**Opción fácil:** doble clic en `iniciar.bat`. La primera vez crea el entorno con Python 3.12 e instala
+dependencias (unos minutos); si algo falla, se detiene y muestra el error. Después abre la app en el navegador
+(`http://localhost:8501`).
 
 **Opción manual (PowerShell, en la carpeta del proyecto):**
 
 ```powershell
-py -3 -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1          # si PowerShell lo bloquea: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 pip install -r requirements.txt
 streamlit run app.py
@@ -46,6 +48,9 @@ Los datos se guardan en `data/pillalu.db` (no se sube a GitHub). Para usar otra 
 pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+Las pruebas también corren en GitHub Actions (Windows y Linux, Python 3.12) en cada push y pull request.
+`tests/test_audit_v01.py` reproduce los casos de la auditoría de v0.1.
 
 ## Estructura
 

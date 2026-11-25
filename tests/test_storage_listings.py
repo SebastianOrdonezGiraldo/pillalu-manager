@@ -31,7 +31,7 @@ def test_persistence_across_connections(tmp_path):
     path = tmp_path / "t.db"
     conn = db.connect(path)
     db.upsert_products(conn, [mk()])
-    cfg = ChannelConfig(channel="facebook", commission_pct=0.0, fixed_fee_tiers=[], other_pct=0.0,
+    cfg = ChannelConfig(channel="facebook", commission_pct=0.0, fixed_fee_tiers=[(None, 0)], other_pct=0.0,
                         shipping_tiers=[(None, 15000)], packaging_cop=0, return_rate=0.2, return_cost_cop=28000)
     db.save_channel_config(conn, cfg, "Garantía 30 días")
     conn.close()
@@ -58,7 +58,7 @@ def test_drafts_do_not_overwrite_edits(tmp_path):
 
 
 def test_catalog_rows_and_custom_price(tmp_path):
-    cfg_fb = ChannelConfig(channel="facebook", commission_pct=0.0, fixed_fee_tiers=[], other_pct=0.0,
+    cfg_fb = ChannelConfig(channel="facebook", commission_pct=0.0, fixed_fee_tiers=[(None, 0)], other_pct=0.0,
                            use_product_shipping=True, packaging_cop=0, return_rate=0.2, return_cost_cop=28000)
     configs = {"mercadolibre": ChannelConfig(channel="mercadolibre"), "facebook": cfg_fb}
     p = mk(shipping_cost_cop=14000)

@@ -1,0 +1,27 @@
+name: Pruebas
+
+on:
+  push:
+    branches: [main, "feature/**", "phase-*/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias fijadas
+        run: python -m pip install -r requirements-dev.txt
+      - name: Pruebas (incluye regresiones financieras de la auditoría)
+        run: python -m pytest -q

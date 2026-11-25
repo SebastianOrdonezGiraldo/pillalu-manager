@@ -26,7 +26,7 @@ def test_percent_field_is_unambiguous():
 
 def test_recommended_price_always_meets_target_even_with_big_tier_jump():
     # Un salto de envío enorme justo encima del precio exacto: el redondeo no puede recuperarlo.
-    cfg = ChannelConfig(channel="mercadolibre", commission_pct=0.10, fixed_fee_tiers=[], other_pct=0.0,
+    cfg = ChannelConfig(channel="mercadolibre", commission_pct=0.10, fixed_fee_tiers=[(None, 0)], other_pct=0.0,
                         shipping_tiers=[(60000, 0), (None, 200000)], packaging_cop=0, return_rate=0.0,
                         return_cost_cop=0, target_margin=0.25, min_margin=0.10, min_profit_cop=5000)
     for cost in range(38000, 41000, 250):

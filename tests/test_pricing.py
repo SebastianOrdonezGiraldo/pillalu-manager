@@ -19,7 +19,7 @@ def ml_cfg(**kw):
 
 def fb_cfg(**kw):
     base = dict(
-        channel="facebook", commission_pct=0.0, fixed_fee_tiers=[], other_pct=0.0, shipping_tiers=None,
+        channel="facebook", commission_pct=0.0, fixed_fee_tiers=[(None, 0)], other_pct=0.0, shipping_tiers=None,
         use_product_shipping=True, packaging_cop=0, return_rate=0.20, return_cost_cop=28000,
         target_margin=0.25, min_margin=0.10, min_profit_cop=5000,
     )
@@ -65,7 +65,7 @@ def test_break_even_hand_computed():
 def _brute(cost, cfg, min_profit, min_margin, ship=None, top=400000):
     for p in range(1, top):
         b = evaluate(p, cost, cfg, ship)
-        if b.expected_profit + 0.5 >= min_profit and b.expected_profit + 0.5 >= min_margin * p:
+        if b.expected_profit + 1e-6 >= min_profit and b.expected_profit + 1e-6 >= min_margin * p:
             return p
     return None
 
@@ -90,7 +90,7 @@ def test_analyze_complete_ml():
     assert r.break_even_price <= r.min_profitable_price <= r.recommended_price
     assert str(r.recommended_price).endswith("900")
     b = r.at_recommended
-    assert b.margin >= 0.25 - 1e-9 and b.expected_profit >= 5000
+    assert b.margin >= 0.25 - 1e-9 and b.expected_profit >= 5000 - 1e-6
     assert r.at_suggested.price == 59900
 
 
@@ -100,7 +100,7 @@ def test_recommended_always_meets_target(cost):
         r = analyze(cost, cfg, product_shipping=15000)
         assert r.recommended_price is not None
         assert r.at_recommended.margin >= cfg.target_margin - 1e-6
-        assert r.at_recommended.expected_profit >= cfg.min_profit_cop - 0.5
+        assert r.at_recommended.expected_profit >= cfg.min_profit_cop - 1e-6
 
 
 def test_unknown_costs_are_not_zero():
@@ -109,7 +109,7 @@ def test_unknown_costs_are_not_zero():
     assert not r.complete
     assert r.recommended_price is None and r.at_recommended is None
     assert "comisión del canal (%)" in r.missing
-    assert "costo de envío" in r.missing
+    assert any(m.startswith("costo de envío") for m in r.missing)
 
 
 def test_missing_supplier_cost():
@@ -140,7 +140,7 @@ def test_impossible_margin_returns_none_with_warning():
 def test_custom_price_below_minimum_warns():
     r = analyze(28500, ml_cfg(), custom_price=40000)
     assert r.selling.price == 40000
-    assert any("mínimo rentable" in w for w in r.warnings)
+    assert any("no cumple tu ganancia" in w or "PÉRDIDA" in w for w in r.warnings)
 
 
 def test_recommended_above_dropi_suggested_warns():

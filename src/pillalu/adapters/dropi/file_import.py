@@ -21,7 +21,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...core.models import Product
+from ...core.models import Product, valid_image_url
 from ...core.money import parse_cop
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -80,7 +80,7 @@ def _images(value: Any) -> list[str]:
     for item in items:
         url = item.get("url") if isinstance(item, dict) else item
         url = str(url or "").strip()
-        if url.startswith(("http://", "https://")) and url not in out:
+        if valid_image_url(url) and url not in out:
             out.append(url)
     return out
 
@@ -121,15 +121,11 @@ def row_to_product(row: dict[str, Any], source: str, line: int, report: ImportRe
 
     name = values.pop("name", None) or ""
     source_id = values.pop("source_id", None) or ""
-    product = Product(source=source, source_id=source_id, name=name, raw=dict(row), **values)
-    if not name:
-        report.rejected.append((line, "sin nombre"))
-        return None
-    if not source_id:
-        report.rejected.append((line, f"'{name}': sin identificador (dropi_id/sku)"))
-        return None
-    if product.supplier_cost_cop is not None and product.supplier_cost_cop <= 0:
-        report.rejected.append((line, f"'{name}': costo de proveedor inválido"))
+    # No se guarda la fila cruda: solo campos normalizados (auditoría P2-04).
+    product = Product(source=source, source_id=source_id, name=name, **values)
+    errors = product.invalid_values()
+    if errors:
+        report.rejected.append((line, f"'{name or '¿sin nombre?'}': {'; '.join(errors)}"))
         return None
     if product.supplier_cost_cop is None:
         report.warnings.append(f"Fila {line} '{name}': sin costo de proveedor; se importa pero no se puede valorar.")
@@ -169,9 +165,12 @@ def read_json_text(text: str, mapping: dict | None = None) -> ImportReport:
 
         report = ImportReport()
         for i, p in enumerate(normalize(raw, mapping), start=1):
-            if not p.name or not p.source_id:
-                report.rejected.append((i, "sin nombre o identificador tras aplicar el mapeo"))
+            errors = p.invalid_values()  # misma validación que CSV/JSON (auditoría P0-02)
+            if errors:
+                report.rejected.append((i, f"'{p.name or '¿sin nombre?'}': {'; '.join(errors)}"))
             else:
+                if p.supplier_cost_cop is None:
+                    report.warnings.append(f"Elemento {i} '{p.name}': sin costo de proveedor; no se puede valorar.")
                 report.products.append(p)
         return report
 

@@ -107,7 +107,13 @@ def resolve(obj: Any, path: str) -> Any:
 
 
 def load_mapping(path: str | Path) -> dict[str, Any]:
-    mapping = json.loads(Path(path).read_text(encoding="utf-8"))
+    return parse_mapping(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def parse_mapping(mapping: Any) -> dict[str, Any]:
+    """Valida un mapeo ya cargado en memoria (sin archivos temporales — auditoría P3-01)."""
+    if not isinstance(mapping, dict) or not isinstance(mapping.get("fields", {}), dict):
+        raise MappingError("El mapeo debe ser un objeto JSON con 'fields'.")
     fields = mapping.get("fields", {})
     unknown = set(fields) - set(MAPPABLE_FIELDS)
     if unknown:
@@ -148,7 +154,6 @@ def normalize(raw: Any, mapping: dict[str, Any]) -> list[Product]:
                 source="dropi_mcp",
                 source_id=values.pop("source_id") or "",
                 name=values.pop("name") or "",
-                raw=item if isinstance(item, dict) else {"value": item},
                 **{k: v for k, v in values.items() if v is not None},
             )
         )

@@ -34,12 +34,39 @@ from .money import round_commercial
 Tier = tuple[int | None, int]
 
 
+class UncoveredTierError(ValueError):
+    """El precio cae fuera de todos los tramos configurados: el costo es desconocido."""
+
+
 def tier_value(tiers: list[Tier], price: float) -> int:
-    """Valor del primer tramo cuyo límite cubre el precio. Lista vacía = 0 (explícito)."""
+    """Valor del primer tramo cuyo límite cubre el precio.
+
+    Nunca devuelve 0 por omisión: si ningún tramo cubre el precio, el costo es
+    desconocido y se lanza ``UncoveredTierError`` (auditoría P0-01).
+    """
     for upto, value in sorted(tiers, key=lambda t: math.inf if t[0] is None else t[0]):
         if upto is None or price <= upto:
             return value
-    return 0  # por encima del último límite y sin tramo abierto: no aplica
+    raise UncoveredTierError(f"Ningún tramo cubre el precio {price}")
+
+
+def tiers_problem(tiers: list[Tier] | None) -> str | None:
+    """Motivo por el que una tabla de tramos no sirve para calcular, o ``None`` si es válida.
+
+    Una tabla válida cubre todos los precios (tiene un tramo final ``resto``) y no
+    tiene valores negativos. El 0 solo vale si se escribió explícitamente.
+    """
+    if tiers is None:
+        return "sin datos"
+    if not tiers:
+        return "sin tramos"
+    if any(v is None or v < 0 for _, v in tiers):
+        return "tiene valores negativos"
+    if any(u is not None and u <= 0 for u, _ in tiers):
+        return "tiene límites de precio inválidos"
+    if not any(u is None for u, _ in tiers):
+        return "falta el tramo final ('resto: valor'); los precios por encima del último límite no tienen tarifa"
+    return None
 
 
 def parse_tiers(text: str) -> list[Tier]:
@@ -68,6 +95,9 @@ def parse_tiers(text: str) -> list[Tier]:
             if value is None:
                 raise ValueError(f"Línea no válida: '{raw_line}'")
         tiers.append((upto, value))
+    problem = tiers_problem(tiers)
+    if problem:
+        raise ValueError(f"La tabla {problem}.")
     return tiers
 
 
@@ -165,18 +195,48 @@ class ProfitResult:
         return self.at_custom or self.at_recommended
 
 
+def _valid_fraction(v) -> bool:
+    return isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v < 1
+
+
+def _valid_amount(v) -> bool:
+    return isinstance(v, (int, float)) and math.isfinite(v) and v >= 0
+
+
 def missing_inputs(cfg: ChannelConfig, supplier_cost: int | None, product_shipping: int | None) -> list[str]:
+    """Datos faltantes o inválidos. Si la lista no está vacía, no se calcula nada.
+
+    Misma regla para todas las entradas (archivo, mapeo, formulario, base guardada):
+    montos finitos ≥ 0, porcentajes en [0, 100 %), tramos que cubren todos los precios.
+    """
     missing = []
-    if supplier_cost is None or supplier_cost <= 0:
+    if supplier_cost is None:
         missing.append("costo del proveedor")
-    for key in ("commission_pct", "fixed_fee_tiers", "other_pct", "packaging_cop", "return_rate", "return_cost_cop"):
-        if getattr(cfg, key) is None:
+    elif not _valid_amount(supplier_cost) or supplier_cost <= 0:
+        missing.append("costo del proveedor inválido (debe ser mayor que 0)")
+    for key in ("commission_pct", "other_pct", "return_rate"):
+        v = getattr(cfg, key)
+        if v is None:
             missing.append(FIELD_LABELS[key])
-    if cfg.use_product_shipping:
-        if product_shipping is None and cfg.shipping_tiers is None:
-            missing.append("flete Dropi del producto (o envío del canal)")
-    elif cfg.shipping_tiers is None:
-        missing.append(FIELD_LABELS["shipping_tiers"])
+        elif not _valid_fraction(v):
+            missing.append(f"{FIELD_LABELS[key]} inválido (0 a 99,99 %)")
+    for key in ("packaging_cop", "return_cost_cop"):
+        v = getattr(cfg, key)
+        if v is None:
+            missing.append(FIELD_LABELS[key])
+        elif not _valid_amount(v):
+            missing.append(f"{FIELD_LABELS[key]} inválido (negativo)")
+    problem = tiers_problem(cfg.fixed_fee_tiers)
+    if problem:
+        missing.append(f"{FIELD_LABELS['fixed_fee_tiers']}: {problem}")
+    if cfg.use_product_shipping and product_shipping is not None:
+        if not _valid_amount(product_shipping):
+            missing.append("flete Dropi del producto inválido (negativo)")
+    else:
+        problem = tiers_problem(cfg.shipping_tiers)
+        if problem:
+            label = "flete Dropi del producto (o envío del canal)" if cfg.use_product_shipping else FIELD_LABELS["shipping_tiers"]
+            missing.append(f"{label}: {problem}")
     return missing
 
 
@@ -212,9 +272,14 @@ def evaluate(price: int, supplier_cost: int, cfg: ChannelConfig, product_shippin
     )
 
 
+# Política de redondeo (auditoría P2-02): los cargos se calculan sin redondear y la
+# comparación es exacta; solo se tolera 1e-6 COP de error de coma flotante. Los
+# montos se redondean únicamente al mostrarlos.
+_EPS = 1e-6
+
+
 def _meets(b: Breakdown, min_profit: float, min_margin: float) -> bool:
-    # Tolerancia de 0,5 COP por redondeo.
-    return b.expected_profit + 0.5 >= min_profit and b.expected_profit + 0.5 >= min_margin * b.price
+    return b.expected_profit + _EPS >= min_profit and b.expected_profit + _EPS >= min_margin * b.price
 
 
 def solve_min_price(
@@ -308,14 +373,32 @@ def analyze(
         if result.recommended_price and result.recommended_price > suggested_price:
             result.warnings.append("El precio recomendado supera el precio sugerido por Dropi.")
     if custom_price:
-        result.at_custom = evaluate(custom_price, supplier_cost, cfg, product_shipping)
-        if result.min_profitable_price and custom_price < result.min_profitable_price:
-            result.warnings.append("El precio elegido está por debajo del precio mínimo rentable.")
+        b = evaluate(custom_price, supplier_cost, cfg, product_shipping)
+        result.at_custom = b
+        # Se evalúa el precio elegido en SU tramo de cargos (auditoría P1-01): subir el
+        # precio puede cruzar a un tramo más caro y dejar pérdida.
+        if b.expected_profit < 0:
+            result.warnings.append(
+                f"El precio elegido deja PÉRDIDA esperada ({round(b.expected_profit):,} COP) con los cargos de su tramo."
+                .replace(",", "."))
+        elif not _meets(b, cfg.min_profit_cop, cfg.min_margin):
+            result.warnings.append("El precio elegido no cumple tu ganancia o margen mínimo con los cargos de su tramo.")
     return result
 
 
 def break_even_units(fixed_investment_cop: int, profit_per_order: float) -> int | None:
-    """Pedidos necesarios para recuperar una inversión fija (muestras, fotos, etc.)."""
+    """Pedidos INICIADOS estimados para recuperar una inversión fija (muestras, fotos…).
+
+    ``profit_per_order`` es la ganancia esperada por pedido iniciado (ya descuenta
+    devoluciones), así que el resultado cuenta pedidos iniciados, no entregas
+    (auditoría P2-01). Entregas esperadas = pedidos × (1 − tasa de devolución).
+    """
+    if fixed_investment_cop < 0 or not math.isfinite(fixed_investment_cop):
+        raise ValueError("La inversión no puede ser negativa.")
     if profit_per_order <= 0:
         return None
     return math.ceil(fixed_investment_cop / profit_per_order)
+
+
+def expected_deliveries(orders: int, return_rate: float) -> float:
+    return orders * (1 - return_rate)

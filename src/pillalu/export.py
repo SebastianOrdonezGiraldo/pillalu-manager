@@ -18,7 +18,7 @@ import zipfile
 
 from .core.money import fmt_cop
 
-ML_COLUMNS = ["dropi_id", "titulo", "precio_cop", "stock_proveedor", "categoria_dropi", "condicion",
+ML_COLUMNS = ["estado", "dropi_id", "titulo", "precio_cop", "stock_proveedor", "categoria_dropi", "condicion",
               "descripcion", "imagen_1", "imagen_2", "imagen_3", "imagen_4", "imagen_5", "imagen_6"]
 
 
@@ -36,7 +36,7 @@ def drafts_to_ml_csv(drafts: list[dict]) -> bytes:
     for d in drafts:
         imgs = (d.get("images") or [])[:6]
         writer.writerow([_safe(v) for v in (
-            d.get("source_id", ""), d["title"], d.get("price_cop") or "", d.get("stock") if d.get("stock") is not None else "",
+            d.get("status", ""), d.get("source_id", ""), d["title"], d.get("price_cop") or "", d.get("stock") if d.get("stock") is not None else "",
             d.get("category") or "", "Nuevo", d["description"], *imgs, *[""] * (6 - len(imgs)),
         )])
     return buf.getvalue().encode("utf-8-sig")  # BOM para que Excel lea las tildes
@@ -55,7 +55,8 @@ def drafts_to_fb_zip(drafts: list[dict]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, d in enumerate(drafts, start=1):
-            folder = f"{i:03d}-{_slug(d['title'])}"
+            prefix = "" if d.get("status") in ("lista", "publicada_manual") else "BORRADOR-"
+            folder = f"{prefix}{i:03d}-{_slug(d['title'])}"
             zf.writestr(f"{folder}/anuncio.txt", ad_text(d))
             zf.writestr(f"{folder}/fotos.txt", "\n".join(d.get("images") or []) + "\n")
         zf.writestr(
