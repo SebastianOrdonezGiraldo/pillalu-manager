@@ -35,6 +35,9 @@ st.markdown(
       .pill-brand { font-size: 1.6rem; font-weight: 800; color: #FFFFFF; }
       .pill-brand span { color: #BAFA71; }
       .pill-note { color: #9FB0CC; font-size: 0.85rem; }
+      button[kind="primary"], button[kind="primaryFormSubmit"] { color: #101C32 !important; font-weight: 700; }
+      [data-baseweb="tag"] span { color: #101C32 !important; font-weight: 600; }
+      button[kind="primary"] p, button[kind="primaryFormSubmit"] p { color: #101C32 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -110,7 +113,6 @@ def page_summary():
     potential = 0.0
     for d in ready:
         p = db.get_product(conn, d["product_id"])
-        cfg = configs[d["channel"]]
         res = analyze_product(p, configs, {(p.id, d["channel"]): d["price_cop"]})[d["channel"]] if p else None
         if res and res.selling:
             potential += res.selling.expected_profit
@@ -233,6 +235,8 @@ SORTS = {
     "Mayor ganancia (mejor canal)": ("mejor_ganancia", False),
     "Mayor ganancia Mercado Libre": ("ml_ganancia", False),
     "Mayor ganancia Facebook": ("fb_ganancia", False),
+    "Mayor ganancia FB al precio sugerido Dropi": ("fb_ganancia_sugerido", False),
+    "Mayor ganancia ML al precio sugerido Dropi": ("ml_ganancia_sugerido", False),
     "Mayor margen Mercado Libre": ("ml_margen", False),
     "Mayor margen Facebook": ("fb_margen", False),
     "Menor costo": ("costo", True),
@@ -279,8 +283,8 @@ def page_catalog():
     with st.container(border=True):
         f1, f2, f3, f4 = st.columns([2, 2, 2, 2])
         text = f1.text_input("Buscar", placeholder="nombre o ID")
-        cats = f2.multiselect("Categoría", sorted(c for c in df["categoria"].unique() if c))
-        sups = f3.multiselect("Proveedor", sorted(s for s in df["proveedor"].unique() if s))
+        cats = f2.multiselect("Categoría", sorted(c for c in df["categoria"].unique() if c), placeholder="Todas")
+        sups = f3.multiselect("Proveedor", sorted(s for s in df["proveedor"].unique() if s), placeholder="Todos")
         sort_label = f4.selectbox("Ordenar por", list(SORTS))
         g1, g2, g3, g4, g5 = st.columns(5)
         channel = g1.selectbox("Canal para filtros", ["Cualquiera", "Mercado Libre", "Facebook"])
@@ -321,9 +325,10 @@ def page_catalog():
     col, asc = SORTS[sort_label]
     view = view.sort_values(col, ascending=asc, na_position="last").reset_index(drop=True)
 
-    st.caption(f"{len(view)} de {len(df)} productos · precios y ganancias por unidad, en COP. "
-               "Ganancia = ganancia esperada (incluye devoluciones) al precio de la ficha o al recomendado.")
-    money = st.column_config.NumberColumn(format="$ %d")
+    st.caption(f"{len(view)} de {len(df)} productos · montos por unidad en COP. «Ganancia» = ganancia esperada "
+               "(descuenta devoluciones) al precio de tu ficha o, si no hay ficha, al precio recomendado. "
+               "«Ganancia a sugerido» usa el precio sugerido por Dropi: es la mejor referencia para comparar productos. "
+               "Vacío = faltan datos (nunca se asume cero).")
     event = st.dataframe(
         view.drop(columns=["ml_completo", "fb_completo", "mejor_ganancia"]),
         hide_index=True,
@@ -334,24 +339,34 @@ def page_catalog():
             "id": None,
             "excluido": None,
             "dropi_id": "ID Dropi",
-            "producto": st.column_config.TextColumn("Producto", width="large"),
+            "producto": st.column_config.TextColumn("Producto", width="medium"),
+            "stock": "Stock",
+            "fotos": "Fotos",
             "categoria": "Categoría",
             "proveedor": "Proveedor",
-            "costo": st.column_config.NumberColumn("Costo", format="$ %d"),
-            "sugerido_dropi": st.column_config.NumberColumn("Sugerido Dropi", format="$ %d"),
-            "ml_precio": st.column_config.NumberColumn("ML precio", format="$ %d"),
-            "ml_ganancia": st.column_config.NumberColumn("ML ganancia", format="$ %d"),
+            "costo": st.column_config.NumberColumn("Costo", format="localized"),
+            "sugerido_dropi": st.column_config.NumberColumn("Sugerido Dropi", format="localized"),
+            "ml_precio": st.column_config.NumberColumn("ML precio venta", format="localized"),
+            "ml_ganancia": st.column_config.NumberColumn("ML ganancia", format="localized"),
             "ml_margen": st.column_config.NumberColumn("ML margen", format="%.1f %%"),
-            "ml_minimo": st.column_config.NumberColumn("ML mínimo", format="$ %d"),
-            "fb_precio": st.column_config.NumberColumn("FB precio", format="$ %d"),
-            "fb_ganancia": st.column_config.NumberColumn("FB ganancia", format="$ %d"),
+            "ml_minimo": st.column_config.NumberColumn("ML mínimo", format="localized"),
+            "fb_precio": st.column_config.NumberColumn("FB precio venta", format="localized"),
+            "fb_ganancia": st.column_config.NumberColumn("FB ganancia", format="localized"),
             "fb_margen": st.column_config.NumberColumn("FB margen", format="%.1f %%"),
-            "fb_minimo": st.column_config.NumberColumn("FB mínimo", format="$ %d"),
+            "fb_minimo": st.column_config.NumberColumn("FB mínimo", format="localized"),
+            "ml_ganancia_sugerido": st.column_config.NumberColumn(
+                "ML ganancia a sugerido", format="localized",
+                help="Ganancia esperada si vendes al precio sugerido por Dropi"),
+            "fb_ganancia_sugerido": st.column_config.NumberColumn(
+                "FB ganancia a sugerido", format="localized",
+                help="Ganancia esperada si vendes al precio sugerido por Dropi"),
             "mejor_canal": "Mejor canal",
         },
+        column_order=["dropi_id", "producto", "mejor_canal", "ml_ganancia", "ml_margen", "ml_precio", "fb_ganancia",
+                      "fb_margen", "fb_precio", "costo", "sugerido_dropi", "ml_ganancia_sugerido", "fb_ganancia_sugerido", "stock", "ml_minimo", "fb_minimo",
+                      "categoria", "proveedor", "fotos"],
         key="catalog_table",
     )
-    _ = money
     selected = view.iloc[event.selection.rows] if event and event.selection.rows else view.iloc[0:0]
     ids = [int(i) for i in selected["id"].tolist()]
 
@@ -468,7 +483,7 @@ def page_drafts():
 
                     if not missing_inputs(cfg, p.supplier_cost_cop, p.shipping_cost_cop):
                         b = evaluate(d["price_cop"], p.supplier_cost_cop, cfg, p.shipping_cost_cop)
-                        st.metric("Ganancia esperada", fmt_cop(b.expected_profit), fmt_pct(b.margin))
+                        st.metric("Ganancia esperada", fmt_cop(b.expected_profit), f"margen {fmt_pct(b.margin)}", delta_color="off")
                     else:
                         st.caption("Faltan costos del canal para calcular la ganancia.")
                 if d["images"]:

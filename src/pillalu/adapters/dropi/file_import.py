@@ -101,7 +101,7 @@ def row_to_product(row: dict[str, Any], source: str, line: int, report: ImportRe
         if f in INT_FIELDS:
             parsed = parse_cop(v)
             if v not in (None, "") and parsed is None:
-                report.rejected.append((line, f"valor no numérico en '{f}': {v!r}"))
+                report.rejected.append((line, f"valor no numérico en '{ALIASES[f][0]}': {v!r}"))
                 return None
             values[f] = parsed
         elif f == "images":

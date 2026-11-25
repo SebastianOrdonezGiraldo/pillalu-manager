@@ -69,6 +69,8 @@ def to_records(rows: list[CatalogRow]) -> list[dict]:
             rec[f"{prefix}_ganancia"] = round(b.expected_profit) if b else None
             rec[f"{prefix}_margen"] = round(b.margin * 100, 1) if b else None
             rec[f"{prefix}_minimo"] = r.min_profitable_price
+            s = r.at_suggested
+            rec[f"{prefix}_ganancia_sugerido"] = round(s.expected_profit) if s else None
             rec[f"{prefix}_completo"] = r.complete
         best = row.best_channel()
         rec["mejor_canal"] = {"mercadolibre": "ML", "facebook": "FB"}.get(best or "", "")

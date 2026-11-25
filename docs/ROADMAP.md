@@ -12,7 +12,8 @@ Leyenda de dependencias: **B-1…B-4** son los bloqueos descritos en `FEASIBILIT
 - Documentos: FEASIBILITY, ARCHITECTURE, ROADMAP, SECURITY, CLAUDE.md.
 - **Salida:** decisión del fundador sobre el alcance del MVP y gestiones B-1, B-2, B-3.
 
-## Fase 1 — Núcleo de rentabilidad (sin integraciones externas)
+## Fase 1 — Núcleo de rentabilidad (sin integraciones externas) → entregada como **Money Engine v0.1**
+_Puntaje de oportunidades (Radar) y textos con IA quedan para v0.2, previa autorización._
 **Valor:** saber en segundos si un producto deja ganancia antes de publicarlo.
 - Esqueleto del proyecto (Python, SQLite, Streamlit, pruebas).
 - Modelo de datos y carga **manual/asistida** de productos (formulario + importación de CSV propio).
