@@ -1,0 +1,13 @@
+{
+  "_aviso": "Datos FICTICIOS para pruebas. No son productos ni precios reales de Dropi.",
+  "productos": [
+    {"id": "DEMO-101", "name": "Mini licuadora portátil USB", "precio_proveedor": 26000, "precio_sugerido": 54900,
+     "stock": 75, "categoria": "Cocina", "proveedor": "Proveedor Demo Norte",
+     "imagenes": ["https://example.com/demo/licuadora-1.jpg"], "costo_envio": 13500,
+     "descripcion": "Recargable. 6 cuchillas. Vaso de 380 ml."},
+    {"id": "DEMO-102", "name": "Cepillo secador alisador 3 en 1", "precio_proveedor": "39.500", "precio_sugerido": "84.900",
+     "stock": 33, "categoria": "Belleza", "proveedor": "Proveedor Demo Sur",
+     "imagenes": [{"url": "https://example.com/demo/cepillo-1.jpg"}], "costo_envio": 14000,
+     "descripcion": "Seca, alisa y da volumen."}
+  ]
+}
